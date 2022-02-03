@@ -26,13 +26,12 @@
 using namespace ELFIO;
 
 std::optional<ModuleData>
-ModuleDataFactory::load(const std::string &path, uint32_t destination_address, uint32_t maximum_size, relocation_trampolin_entry_t *trampolin_data, uint32_t trampolin_data_length) {
+ModuleDataFactory::load(std::istream &rpxStream, uint32_t destination_address, uint32_t maximum_size, relocation_trampolin_entry_t *trampolin_data, uint32_t trampolin_data_length) {
     elfio reader;
     ModuleData moduleData;
-
-    // Load ELF data
-    if (!reader.load(path)) {
-        DEBUG_FUNCTION_LINE("Can't find or process %s", path.c_str());
+    
+    if (!reader.load(rpxStream)) {
+        DEBUG_FUNCTION_LINE("Can't load stream!");
         return {};
     }
 

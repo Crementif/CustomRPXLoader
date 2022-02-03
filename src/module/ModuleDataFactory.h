@@ -20,13 +20,14 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <istream>
 #include "common/relocation_defines.h"
 #include "ModuleData.h"
 #include "elfio/elfio.hpp"
 
 class ModuleDataFactory {
 public:
-    static std::optional<ModuleData> load(const std::string &path, uint32_t destination_address, uint32_t maximum_size, relocation_trampolin_entry_t *trampolin_data, uint32_t trampolin_data_length);
+    static std::optional<ModuleData> load(std::istream &rpxStream, uint32_t destination_address, uint32_t maximum_size, relocation_trampolin_entry_t *trampolin_data, uint32_t trampolin_data_length);
 
     static bool linkSection(const ELFIO::elfio &reader, uint32_t section_index, uint32_t destination, uint32_t base_text, uint32_t base_data, relocation_trampolin_entry_t *trampolin_data,
                             uint32_t trampolin_data_length);

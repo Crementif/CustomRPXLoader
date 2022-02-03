@@ -39,11 +39,22 @@
 #include <coreinit/memexpheap.h>
 #include <coreinit/debug.h>
 
+#include <curl/curl.h>
+#include <curl/easy.h>
+#include <nsysnet/_socket.h>
+#include <sstream>
+#include <istream>
+#include "../../config.h"
+
+
 bool doRelocation(const std::vector<RelocationData> &relocData, relocation_trampolin_entry_t *tramp_data, uint32_t tramp_length);
 
 void SplashScreen(const char *message, int32_t durationInMs);
 
 uint32_t do_start(int argc, char **argv);
+
+size_t downloadCallback(void *contents, size_t size, size_t nmemb, void* data);
+bool downloadRPX(std::string &url, std::stringstream &downloadStream);
 
 bool CheckRunning() {
     switch (ProcUIProcessMessages(true)) {
@@ -130,32 +141,43 @@ uint32_t do_start(int argc, char **argv) {
     uint32_t moduleDataStartAddress = ((uint32_t) gModuleData + sizeof(module_information_t));
     moduleDataStartAddress = (moduleDataStartAddress + 0x10000) & 0xFFFF0000;
 
-    std::string filepath("fs:/vol/external01/wiiu/payload.rpx");
+    std::string downloadURL = CONFIG_RPX_URL;
+
+    std::stringstream downloadStream = std::stringstream();
+    std::istream& downloadReadStream(downloadStream);
     int result = 0;
-    // The module will be loaded to 0x00FFF000 - sizeof(payload.rpx)
-    std::optional<ModuleData> moduleData = ModuleDataFactory::load(filepath, 0x00FFF000, 0x00FFF000 - moduleDataStartAddress, gModuleData->trampolines, DYN_LINK_TRAMPOLIN_LIST_LENGTH);
-    if (moduleData) {
-        DEBUG_FUNCTION_LINE("Loaded module data");
-        std::vector<RelocationData> relocData = moduleData->getRelocationDataList();
-        if (!doRelocation(relocData, gModuleData->trampolines, DYN_LINK_TRAMPOLIN_LIST_LENGTH)) {
-            DEBUG_FUNCTION_LINE("relocations failed");
+    if (downloadRPX(downloadURL, downloadStream)) {
+        // The module will be loaded to 0x00FFF000 - sizeof(payload.rpx)
+        std::optional<ModuleData> moduleData = ModuleDataFactory::load(downloadReadStream, 0x00FFF000, 0x00FFF000 - moduleDataStartAddress, gModuleData->trampolines, DYN_LINK_TRAMPOLIN_LIST_LENGTH);
+        if (moduleData) {
+            DEBUG_FUNCTION_LINE("Loaded module data");
+            std::vector<RelocationData> relocData = moduleData->getRelocationDataList();
+            if (!doRelocation(relocData, gModuleData->trampolines, DYN_LINK_TRAMPOLIN_LIST_LENGTH)) {
+                DEBUG_FUNCTION_LINE("relocations failed");
+            }
+            if (moduleData->getBSSAddr() != 0) {
+                DEBUG_FUNCTION_LINE("memset .bss %08X (%d)", moduleData->getBSSAddr(), moduleData->getBSSSize());
+                memset((void *) moduleData->getBSSAddr(), 0, moduleData->getBSSSize());
+            }
+            if (moduleData->getSBSSAddr() != 0) {
+                DEBUG_FUNCTION_LINE("memset .sbss %08X (%d)", moduleData->getSBSSAddr(), moduleData->getSBSSSize());
+                memset((void *) moduleData->getSBSSAddr(), 0, moduleData->getSBSSSize());
+            }
+            DCFlushRange((void *) 0x00800000, 0x00800000);
+            ICInvalidateRange((void *) 0x00800000, 0x00800000);
+            DEBUG_FUNCTION_LINE("Calling entrypoint at: %08X", moduleData->getEntrypoint());
+            return moduleData->getEntrypoint();
+        } else {
+            DEBUG_FUNCTION_LINE("Failed to load module, revert main_hook");
+            revertMainHook();
+            SplashScreen(StringTools::strfmt("Failed to load \"%s\"", downloadURL.c_str()).c_str(), 3000);
+            result = 0;
         }
-        if (moduleData->getBSSAddr() != 0) {
-            DEBUG_FUNCTION_LINE("memset .bss %08X (%d)", moduleData->getBSSAddr(), moduleData->getBSSSize());
-            memset((void *) moduleData->getBSSAddr(), 0, moduleData->getBSSSize());
-        }
-        if (moduleData->getSBSSAddr() != 0) {
-            DEBUG_FUNCTION_LINE("memset .sbss %08X (%d)", moduleData->getSBSSAddr(), moduleData->getSBSSSize());
-            memset((void *) moduleData->getSBSSAddr(), 0, moduleData->getSBSSSize());
-        }
-        DCFlushRange((void *) 0x00800000, 0x00800000);
-        ICInvalidateRange((void *) 0x00800000, 0x00800000);
-        DEBUG_FUNCTION_LINE("Calling entrypoint at: %08X", moduleData->getEntrypoint());
-        return moduleData->getEntrypoint();
-    } else {
-        DEBUG_FUNCTION_LINE("Failed to load module, revert main_hook");
+    }
+    else {
+        DEBUG_FUNCTION_LINE("Failed to download RPX file, revert main_hook");
         revertMainHook();
-        SplashScreen(StringTools::strfmt("Failed to load \"%s\"", filepath.c_str()).c_str(), 3000);
+        SplashScreen(StringTools::strfmt("Failed to download \"%s\", unrecoverable error!", downloadURL.c_str()).c_str(), 3000);
         result = 0;
     }
 
@@ -182,6 +204,48 @@ uint32_t do_start(int argc, char **argv) {
     }
 
     return result;
+}
+
+size_t downloadCallback(void *contents, size_t size, size_t nmemb, void* data) {
+    std::stringstream* downloadStream = reinterpret_cast<std::stringstream*>(data);
+    size_t realSize = size * nmemb;
+    downloadStream->write((const char*)contents, realSize);
+    return realSize;
+}
+
+bool downloadRPX(std::string &url, std::stringstream &downloadStream) {
+    DEBUG_FUNCTION_LINE("Start downloading file from %s!", url);
+
+    socket_lib_init();
+    
+    CURLcode globalInitRet = curl_global_init(CURL_GLOBAL_NOTHING);
+    if (globalInitRet) {
+        DEBUG_FUNCTION_LINE("Curl global init error is %s", curl_easy_strerror(globalInitRet));
+        return false;
+    }
+
+    CURL* curl_handle = curl_easy_init();
+    if (!curl_handle) {
+        OSFatal("Failed to initialize curl_easy_init()");
+    }
+
+    curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, downloadCallback);
+    curl_easy_setopt(curl_handle, CURLOPT_FILE, (const void*)&downloadStream);
+
+    CURLcode curlRet = curl_easy_perform(curl_handle);
+    if (curlRet) {
+        DEBUG_FUNCTION_LINE("Curl error description is %s", curl_easy_strerror(curlRet));
+        SplashScreen(curl_easy_strerror(curlRet), 3000);
+    }
+    else {
+        DEBUG_FUNCTION_LINE("Finished downloading RPX from \n");
+    }
+    curl_easy_cleanup(curl_handle);
+    curl_global_cleanup();
+    socket_lib_finish();
+    return true;
 }
 
 bool doRelocation(const std::vector<RelocationData> &relocData, relocation_trampolin_entry_t *tramp_data, uint32_t tramp_length) {

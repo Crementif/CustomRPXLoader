@@ -149,6 +149,8 @@ $(OUTPUT).elf:  $(OFILES)
 	$(Q)$(LD) -n -T $^ $(LDFLAGS) -o ../$(BUILD_DBG).elf  $(LIBPATHS) $(LIBS)
 	$(Q)$(OBJCOPY) -S -R .comment -R .gnu.attributes ../$(BUILD_DBG).elf $@
 	$(Q)$(OBJCOPY) -O binary -R .comment -R .gnu.attributes ../$(BUILD_DBG).elf $@.bin
+	cp ../$(TARGET).elf ../../JsTypeHax/payload.elf
+	cp ../$(BUILD_DBG).elf ../../JsTypeHax/payload_dbg.elf
 
 #---------------------------------------------------------------------------------
 %.a:
