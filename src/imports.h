@@ -163,6 +163,11 @@ IMPORT(socket);
 IMPORT(select);
 IMPORT(socketlasterr);
 IMPORT(socket_lib_finish);
+IMPORT(NSSLInit);
+IMPORT(NSSLCreateContext);
+IMPORT(NSSLAddServerPKI);
+IMPORT(NSSLDestroyContext);
+IMPORT(NSSLFinish);
 
 IMPORT_END();
 

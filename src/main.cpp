@@ -42,6 +42,7 @@
 #include <curl/curl.h>
 #include <curl/easy.h>
 #include <nsysnet/_socket.h>
+#include <nsysnet/nssl.h>
 #include <sstream>
 #include <istream>
 #include "../../config.h"
@@ -217,33 +218,80 @@ bool downloadRPX(std::string &url, std::stringstream &downloadStream) {
     DEBUG_FUNCTION_LINE("Start downloading file from %s!", url);
 
     socket_lib_init();
+
+    NSSLError nsslRet = NSSLInit();
+    if (nsslRet < NSSL_ERROR_OK) {
+        OSFatal(StringTools::fmt("NSSLInit error: %d", nsslRet));
+        return false;
+    }
     
-    CURLcode globalInitRet = curl_global_init(CURL_GLOBAL_NOTHING);
+    CURLcode globalInitRet = curl_global_init(CURL_GLOBAL_DEFAULT);
     if (globalInitRet) {
-        DEBUG_FUNCTION_LINE("Curl global init error is %s", curl_easy_strerror(globalInitRet));
+        OSFatal(StringTools::fmt("Curl global init error is %s", curl_easy_strerror(globalInitRet)));
         return false;
     }
 
     CURL* curl_handle = curl_easy_init();
     if (!curl_handle) {
         OSFatal("Failed to initialize curl_easy_init()");
+        return false;
+    }
+
+    NSSLContextHandle context = NSSLCreateContext(0);
+    if (context < 0) {
+        OSFatal(StringTools::fmt("NSSLCreateContext error: %d", context));
+        return false;
+    }
+
+    for(int i = NSSL_SERVER_CERT_GROUP_NINTENDO_FIRST; i <= NSSL_SERVER_CERT_GROUP_NINTENDO_LAST; ++i) {
+        NSSLError ret = NSSLAddServerPKI(context, static_cast<NSSLServerCertId>(i));
+        if (ret < 0) {
+            OSFatal(StringTools::fmt("NSSLAddServerPKI(context, %d) error: %d", i, ret));
+            return false;
+        }
+    }
+
+    for(int i = NSSL_SERVER_CERT_GROUP_COMMERCIAL_FIRST; i <= NSSL_SERVER_CERT_GROUP_COMMERCIAL_LAST; i++) {
+        NSSLError ret = NSSLAddServerPKI(context, static_cast<NSSLServerCertId>(i));
+        if (ret < 0) {
+            OSFatal(StringTools::fmt("NSSLAddServerPKI(context, %d) error: %d", i, ret));
+            return false;
+        }
+    }
+
+    for(int i = NSSL_SERVER_CERT_GROUP_COMMERCIAL_4096_FIRST; i <= NSSL_SERVER_CERT_GROUP_COMMERCIAL_4096_LAST; ++i) {
+        NSSLError ret = NSSLAddServerPKI(context, static_cast<NSSLServerCertId>(i));
+        if (ret < 0) {
+            OSFatal(StringTools::fmt("NSSLAddServerPKI(context, %d) error: %d", i, ret));
+            return false;
+        }
+    }
+
+    NSSLError ret = curl_easy_setopt(curl_handle, CURLOPT_NSSL_CONTEXT, context);
+    if (ret < 0) {
+        OSFatal(StringTools::fmt("SetNSSLContext error: %d", ret));
+        return false;
     }
 
     curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, downloadCallback);
     curl_easy_setopt(curl_handle, CURLOPT_FILE, (const void*)&downloadStream);
+    curl_easy_setopt(curl_handle, CURLOPT_USE_SSL, CURLUSESSL_TRY);
 
     CURLcode curlRet = curl_easy_perform(curl_handle);
     if (curlRet) {
-        DEBUG_FUNCTION_LINE("Curl error description is %s", curl_easy_strerror(curlRet));
-        SplashScreen(curl_easy_strerror(curlRet), 3000);
+        OSFatal(StringTools::fmt("Curl error description is %s", curl_easy_strerror(curlRet)));
+        return false;
     }
     else {
-        DEBUG_FUNCTION_LINE("Finished downloading RPX from \n");
+        DEBUG_FUNCTION_LINE("Finished downloading RPX\n");
     }
+
+    NSSLDestroyContext(context);
     curl_easy_cleanup(curl_handle);
     curl_global_cleanup();
+    NSSLFinish();
     socket_lib_finish();
     return true;
 }
