@@ -15,13 +15,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  ****************************************************************************/
 
+#include "ModuleDataFactory.h"
+#include "../ElfUtils.h"
+#include "../utils/FileUtils.h"
+#include <coreinit/cache.h>
+#include <map>
 #include <string>
 #include <vector>
-#include <map>
-#include <coreinit/cache.h>
-#include "ModuleDataFactory.h"
-#include "elfio/elfio.hpp"
-#include "../ElfUtils.h"
 
 using namespace ELFIO;
 
@@ -39,6 +39,10 @@ ModuleDataFactory::load(std::istream &rpxStream, uint32_t destination_address, u
 
     auto **destinations = (uint8_t **) malloc(sizeof(uint8_t *) * sec_num);
 
+    if (!destinations) {
+        DEBUG_FUNCTION_LINE("Failed to alloc memory for destinations");
+    }
+
     uint32_t sizeOfModule = 0;
     for (uint32_t i = 0; i < sec_num; ++i) {
         section *psec = reader.sections[i];
@@ -53,6 +57,7 @@ ModuleDataFactory::load(std::istream &rpxStream, uint32_t destination_address, u
 
     if (sizeOfModule > maximum_size) {
         DEBUG_FUNCTION_LINE("Module is too big.");
+        free(destinations);
         return {};
     }
 
@@ -67,13 +72,13 @@ ModuleDataFactory::load(std::istream &rpxStream, uint32_t destination_address, u
 
     for (uint32_t i = 0; i < sec_num; ++i) {
         section *psec = reader.sections[i];
-        if (psec->get_type() == 0x80000002) {
+        if (psec->get_type() == 0x80000002 || psec->get_name() == ".wut_load_bounds") {
             continue;
         }
 
         if ((psec->get_type() == SHT_PROGBITS || psec->get_type() == SHT_NOBITS) && (psec->get_flags() & SHF_ALLOC)) {
             uint32_t sectionSize = psec->get_size();
-            auto address = (uint32_t) psec->get_address();
+            auto address         = (uint32_t) psec->get_address();
 
             destinations[psec->get_index()] = (uint8_t *) baseOffset;
 
@@ -87,8 +92,9 @@ ModuleDataFactory::load(std::istream &rpxStream, uint32_t destination_address, u
                 destination -= 0x10000000;
                 destinations[psec->get_index()] -= 0x10000000;
             } else if (address >= 0xC0000000) {
-                destination -= 0xC0000000;
-                destinations[psec->get_index()] -= 0xC0000000;
+                DEBUG_FUNCTION_LINE("Loading section from 0xC0000000 is NOT supported");
+                free(destinations);
+                return {};
             } else {
                 DEBUG_FUNCTION_LINE("Unhandled case");
                 free(destinations);
@@ -135,7 +141,7 @@ ModuleDataFactory::load(std::istream &rpxStream, uint32_t destination_address, u
     }
     std::vector<RelocationData> relocationData = getImportRelocationData(reader, destinations);
 
-    for (auto const &reloc: relocationData) {
+    for (auto const &reloc : relocationData) {
         moduleData.addRelocationData(reloc);
     }
 
@@ -151,7 +157,6 @@ ModuleDataFactory::load(std::istream &rpxStream, uint32_t destination_address, u
 
     return moduleData;
 }
-
 
 std::vector<RelocationData> ModuleDataFactory::getImportRelocationData(const elfio &reader, uint8_t **destinations) {
     std::vector<RelocationData> result;

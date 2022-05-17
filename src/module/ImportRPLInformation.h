@@ -17,15 +17,15 @@
 
 #pragma once
 
-#include <string>
-#include <optional>
 #include "utils/logger.h"
+#include <optional>
+#include <string>
 
 class ImportRPLInformation {
 
 public:
     explicit ImportRPLInformation(std::string name, bool isData = false) {
-        this->name = name;
+        this->name    = name;
         this->_isData = isData;
     }
 
@@ -45,7 +45,7 @@ public:
             rplName = rawSectionName.substr(fimport.size());
         } else if (std::equal(dimport.begin(), dimport.end(), rawSectionName.begin())) {
             rplName = rawSectionName.substr(dimport.size());
-            data = true;
+            data    = true;
         } else {
             DEBUG_FUNCTION_LINE("invalid section name\n");
             return {};

@@ -17,13 +17,13 @@
 
 #pragma once
 
+#include <istream>
+#include "ModuleData.h"
+#include "common/relocation_defines.h"
+#include "elfio/elfio.hpp"
+#include <map>
 #include <string>
 #include <vector>
-#include <map>
-#include <istream>
-#include "common/relocation_defines.h"
-#include "ModuleData.h"
-#include "elfio/elfio.hpp"
 
 class ModuleDataFactory {
 public:
