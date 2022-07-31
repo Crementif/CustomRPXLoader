@@ -94,6 +94,7 @@ IMPORT(FSGetFreeSpaceSize);
 IMPORT(FSGetStat);
 IMPORT(FSRemove);
 IMPORT(FSOpenFile);
+IMPORT(FSOpenFileEx);
 IMPORT(FSCloseFile);
 IMPORT(FSOpenDir);
 IMPORT(FSMakeDir);
