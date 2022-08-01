@@ -59,6 +59,7 @@ IMPORT(OSCompareAndSwapAtomic);
 IMPORT(OSGetThreadSpecific);
 IMPORT(OSSetThreadSpecific);
 IMPORT(FSTimeToCalendarTime);
+IMPORT(OSIsDebuggerInitialized);
 
 IMPORT(exit);
 IMPORT(_Exit);
